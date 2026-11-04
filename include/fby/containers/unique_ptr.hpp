@@ -1,3 +1,26 @@
+/*
+Copyright (c) 2026 pinkytoefoo <pinkytoefoo@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+ */
+
+
 // https://godbolt.org/z/T8rcGWhYc
 
 #pragma once
@@ -90,12 +113,20 @@ namespace fby
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return ptr_ != nullptr; }
         [[nodiscard]] constexpr T* get() const noexcept { return ptr_; }
 
-        constexpr auto operator<=>(const unique_ptr& other) const {
+        constexpr auto operator<=>(const unique_ptr& other) const noexcept {
             return ptr_ <=> other.ptr_;
         }
 
-        constexpr bool operator ==(const unique_ptr& other) const {
+        constexpr bool operator==(const unique_ptr& other) const noexcept {
             return ptr_ == other.ptr_;
+        }
+
+        friend constexpr bool operator==(const unique_ptr& ptr, std::nullptr_t) const noexcept {
+            return ptr.ptr_ == nullptr;
+        }
+
+        friend constexpr bool operator==(std::nullptr_t, const unique_ptr& ptr) const noexcept {
+            return nullptr == ptr.ptr_;
         }
 
         constexpr void swap(unique_ptr& other)
@@ -106,7 +137,7 @@ namespace fby
             swap(deleter_, other.deleter_);
         }
 
-        constexpr friend void swap(unique_ptr& first, unique_ptr& second)
+        friend constexpr void swap(unique_ptr& first, unique_ptr& second)
             noexcept(std::is_nothrow_swappable_v<Deleter>)
         {
             using std::swap;
