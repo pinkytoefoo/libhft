@@ -77,9 +77,15 @@ public:
 
     ~spsc_queue() noexcept
     {
-        if constexpr(!std::is_trivially_destructible_v<T>) {
-            while(front()) {
-                try_pop();
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+            auto read = readIdx_.load(std::memory_order_relaxed);
+            const auto write = writeIdx_.load(std::memory_order_relaxed);
+
+            while (read != write) {
+                std::destroy_at(buffer_ + read);
+
+                if (++read == capacity_)
+                    read = 0;
             }
         }
 
@@ -101,8 +107,13 @@ public:
         if(nextWrite == capacity_) {
             nextWrite = 0;
         }
-        if(nextWrite == readIdx_.load(std::memory_order_acquire)) {
-            return false;
+        
+        if(nextWrite == readCacheIdx_) {
+            readCacheIdx_ = readIdx_.load(std::memory_order_acquire);
+
+            if(nextWrite == readCacheIdx_) {
+                return false;
+            }
         }
 
         alloc_traits::construct(
@@ -122,12 +133,13 @@ public:
     {
         auto const currentWrite = writeIdx_.load(std::memory_order_relaxed);
         auto nextWrite = currentWrite + 1;
-
         if(nextWrite == capacity_) {
             nextWrite = 0;
         }
+
         auto currentRead = readIdx_.load(std::memory_order_acquire);
-        while(nextWrite == currentRead) {
+
+        while(nextWrite == currentRead) [[unlikely]] {
             currentRead = readIdx_.load(std::memory_order_acquire);
         }
 
@@ -173,22 +185,26 @@ public:
     pointer front() noexcept {
         auto const currentRead = readIdx_.load(std::memory_order_relaxed);
         
-        if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
-            return nullptr;
+        if(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+
+            if(currentRead == writeCacheIdx_) {
+                return nullptr;
+            }
         }
 
         return buffer_ + currentRead;
     }
 
-    const_pointer front() const noexcept {
-        auto const currentRead = readIdx_.load(std::memory_order_relaxed);
+    // const_pointer front() const noexcept {
+    //     auto const currentRead = readIdx_.load(std::memory_order_relaxed);
         
-        if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
-            return nullptr;
-        }
+    //     if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
+    //         return nullptr;
+    //     }
 
-        return buffer_ + currentRead;
-    }
+    //     return buffer_ + currentRead;
+    // }
 
     /**
      * @brief Returns a boolean representing whether or not popping the front element was successful
@@ -201,9 +217,13 @@ public:
     bool try_pop() noexcept(std::is_nothrow_destructible_v<T>)
     {
         auto const currentRead = readIdx_.load(std::memory_order_relaxed);
-
-        if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
-            return false;
+        
+        if(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+            
+            if(currentRead == writeCacheIdx_) {
+                return false;
+            }
         }
 
         alloc_traits::destroy(allocator_, buffer_ + currentRead);
@@ -220,9 +240,13 @@ public:
     bool try_pop(T& out) noexcept(std::is_nothrow_destructible_v<T>)
     {
         auto const currentRead = readIdx_.load(std::memory_order_relaxed);
-
-        if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
-            return false;
+        
+        if(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+            
+            if(currentRead == writeCacheIdx_) {
+                return false;
+            }
         }
 
         out = buffer_[currentRead];
@@ -244,8 +268,13 @@ public:
         )
     {
         auto const currentRead = readIdx_.load(std::memory_order_relaxed);
-        if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
-            return std::nullopt;
+        
+        if(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+            
+            if(currentRead == writeCacheIdx_) {
+                return std::nullopt;
+            }
         }
 
         std::optional<T> popped{ std::in_place, std::move(buffer_[currentRead]) };
@@ -282,9 +311,9 @@ private:
 #endif
 
     alignas(kCachelineSize) std::atomic<size_type> writeIdx_{ 0 };
-    size_type readCacheIdx_;
+    size_type readCacheIdx_{ 0 };
 
     alignas(kCachelineSize) std::atomic<size_type> readIdx_{ 0 };
-    size_type writeCacheIdx_;
+    size_type writeCacheIdx_{ 0 };
 };
 } // namespace fby

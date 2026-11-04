@@ -1,3 +1,5 @@
+// TODO: TEST
+
 #include <cstdint>
 #include <atomic>
 #include <new>
@@ -61,10 +63,14 @@ public:
     {
         if constexpr(!std::is_trivially_destructible_v<T>) {
             // destroy in reverse order
-            auto const end = writeIdx_.load(std::memory_order_acquire);
-            auto const start = readIdx_.load(std::memory_order_acquire);
-            for(size_type i{end}; i-- > start; ) {
-                std::destroy_at(buffer_.data() + i);
+            auto read = readIdx_.load(std::memory_order_relaxed);
+            const auto write = writeIdx_.load(std::memory_order_relaxed);
+
+            while (read != write) {
+                std::destroy_at(buffer_ + read);
+
+                if (++read == capacity_)
+                    read = 0;
             }
         }
     }
@@ -190,7 +196,7 @@ public:
 private:
     size_type slot(size_type counter) const noexcept { return (counter & kMask); }
 
-    alignas(T) std::byte storage_[sizeof(T) * Capacity];
+    std::array<T, Capacity> buffer_; // TODO: change with `align(T) std::byte[Capacity * sizeof(T)] storage_;
 
 #ifdef __cpp_lib_hardware_interference_size
     constexpr static size_type kCachelineSize = std::hardware_destructive_interference_size;
