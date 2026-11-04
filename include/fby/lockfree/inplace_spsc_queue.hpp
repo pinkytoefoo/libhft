@@ -1,4 +1,6 @@
-// TODO: TEST
+#pragma once
+
+#include "fby/containers/inplace_vector.hpp"
 
 #include <cstdint>
 #include <atomic>
@@ -61,18 +63,6 @@ public:
 
     ~inplace_spsc_queue() noexcept
     {
-        if constexpr(!std::is_trivially_destructible_v<T>) {
-            // destroy in reverse order
-            auto read = readIdx_.load(std::memory_order_relaxed);
-            const auto write = writeIdx_.load(std::memory_order_relaxed);
-
-            while (read != write) {
-                std::destroy_at(buffer_ + read);
-
-                if (++read == capacity_)
-                    read = 0;
-            }
-        }
     }
 
     // non-copyable and non-movable
@@ -83,22 +73,53 @@ public:
     template<typename ...Args>
     requires std::constructible_from<T, Args&&...>
     bool try_emplace(Args&&... args)
-        noexcept(std::is_nothrow_constructible_v<T, Args&&...>)
     {
         auto const currentWrite = writeIdx_.load(std::memory_order_relaxed);
+        auto nextWrite = currentWrite + 1;
 
-        if(currentWrite - readIdx_.load(std::memory_order_acquire) == Capacity) {
-            return false;
+        if(nextWrite == readCacheIdx_) {
+            readCacheIdx_ = readIdx_.load(std::memory_order_acquire);
+
+            if(nextWrite == readCacheIdx_) {
+                return false;
+            }
         }
 
-        std::construct_at(
-            buffer_.data() + slot(currentWrite),
+        buffer_.emplace(buffer_.end() - 1, std::forward<Args>(args)...);
+
+        writeIdx_.store(nextWrite, std::memory_order_release);
+
+        return true;
+    }
+
+    template<typename ...Args>
+    requires std::constructible_from<T, Args&&...>
+    void emplace(Args&&... args)
+    {
+        auto const currentWrite = writeIdx_.load(std::memory_order_relaxed);
+        auto nextWrite = currentWrite + 1;
+
+        auto currentRead = readIdx_.load(std::memory_order_acquire);
+
+        while(nextWrite == currentRead) [[unlikely]] {
+            currentRead = readIdx_.load(std::memory_order_acquire);
+        }
+
+        alloc_traits::construct(
+            allocator_,
+            buffer_ + slot(currentWrite),
             std::forward<Args>(args)...
         );
 
-        writeIdx_.store(currentWrite + 1, std::memory_order_release);
+        writeIdx_.store(nextWrite, std::memory_order_release);
+    }
 
-        return true;
+    void push(const T& value) {
+        emplace(value);
+    }
+
+    void push(T&& value) {
+        emplace(std::move(value));
     }
 
     bool try_push(const T& value) noexcept(std::is_nothrow_copy_constructible_v<T>) {
@@ -123,15 +144,20 @@ public:
      *
      * @note The pointer must not be retained after the element is removed.
      */
-    constexpr pointer front() noexcept {
+    pointer front() noexcept {
         auto const currentRead = readIdx_.load(std::memory_order_relaxed);
         
-        if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
-            return nullptr;
+        if(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+
+            if(currentRead == writeCacheIdx_) {
+                return nullptr;
+            }
         }
 
-        return buffer_.data() + slot(currentRead);
+        return buffer_ + currentRead;
     }
+
 
     constexpr const_pointer front() const noexcept {
         auto const currentRead = readIdx_.load(std::memory_order_relaxed);
@@ -153,15 +179,66 @@ public:
      */
     bool try_pop() noexcept(std::is_nothrow_destructible_v<T>) {
         auto const currentRead = readIdx_.load(std::memory_order_relaxed);
-
-        if(currentRead == writeIdx_.load(std::memory_order_acquire)) {
-            return false;
+        
+        if(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+            
+            if(currentRead == writeCacheIdx_) {
+                return false;
+            }
         }
 
-        std::destroy_at(buffer_.data() + slot(currentRead));
-        readIdx_.store(currentRead + 1, std::memory_order_release);
+        // std::destroy_at(buffer_.data() + current);
 
+        auto nextRead = currentRead + 1;
+        if(nextRead == capacity_) {
+            nextRead = 0;
+        }
+
+        readIdx_.store(nextRead, std::memory_order_release);
         return true;
+    }
+
+    bool try_pop(T& out) noexcept(std::is_nothrow_destructible_v<T>)
+    {
+        auto const currentRead = readIdx_.load(std::memory_order_relaxed);
+        
+        if(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+            
+            if(currentRead == writeCacheIdx_) {
+                return false;
+            }
+        }
+
+        out = buffer_[currentRead];
+        // alloc_traits::destroy(allocator_, buffer_ + currentRead);
+
+        auto nextRead = currentRead + 1;
+        if(nextRead == capacity_) {
+            nextRead = 0;
+        }
+
+        readIdx_.store(nextRead, std::memory_order_release);
+        return true;
+    }
+
+
+    void pop() noexcept(std::is_nothrow_destructible_v<T>) {
+        auto const currentRead = readIdx_.load(std::memory_order_relaxed);
+        
+        while(currentRead == writeCacheIdx_) {
+            writeCacheIdx_ = writeIdx_.load(std::memory_order_acquire);
+        }
+
+        // alloc_traits::destroy(allocator_, buffer_ + currentRead);
+
+        auto nextRead = currentRead + 1;
+        if(nextRead == capacity_) {
+            nextRead = 0;
+        }
+
+        readIdx_.store(nextRead, std::memory_order_release);
     }
 
     NODISCARD std::optional<T> try_pop_get()
@@ -177,7 +254,7 @@ public:
         }
 
         std::optional<T> popped{ std::in_place, std::move(buffer_[slot(currentRead)]) };
-        std::destroy_at(buffer_.data() + currentRead);
+        std::destroy_at(buffer_.data() + slot(currentRead));
         readIdx_.store(currentRead + 1, std::memory_order_release);
 
         return popped;
@@ -194,19 +271,22 @@ public:
     NODISCARD constexpr size_type capacity() const noexcept { return Capacity; }
 
 private:
-    size_type slot(size_type counter) const noexcept { return (counter & kMask); }
 
-    std::array<T, Capacity> buffer_; // TODO: change with `align(T) std::byte[Capacity * sizeof(T)] storage_;
+    ::fby::inplace_vector<T, Capacity> buffer_;
 
+    constexpr static size_type kCachelineSize
 #ifdef __cpp_lib_hardware_interference_size
-    constexpr static size_type kCachelineSize = std::hardware_destructive_interference_size;
+    = std::hardware_destructive_interference_size;
 #else
-    constexpr static size_type kCachelineSize = 64;
+    = 64;
 #endif
 
     constexpr static size_type kMask = Capacity - 1;
 
     alignas(kCachelineSize) std::atomic<size_type> writeIdx_{ 0 };
+    size_type readCacheIdx_{ 0 };
+
     alignas(kCachelineSize) std::atomic<size_type> readIdx_{ 0 };
+    size_type writeCacheIdx_{ 0 };
 };
 } // namespace fby

@@ -1,4 +1,4 @@
-#include <fby/lock_free/spsc_queue.hpp>
+#include <fby/lockfree/spsc_queue.hpp>
 
 #include <atomic>
 #include <barrier>

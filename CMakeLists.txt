@@ -14,5 +14,23 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+
+# --- BENCHMARKS ---
 add_executable(spsc_queue_benchmark bench/spsc_queue_bench.cpp)
 target_include_directories(spsc_queue_benchmark PRIVATE include)
+
+
+# --- TESTS ---
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/03597a01ee50ed33e9dfd640b249b4be3799d395.zip
+)
+
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+add_executable(tests test/all.cpp)
+target_include_directories(tests PRIVATE include GoogleTest)
+target_link_libraries(tests PRIVATE  GTest::gtest_main)
