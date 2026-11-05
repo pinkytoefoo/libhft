@@ -1,4 +1,4 @@
-#include <fby/lockfree/spsc_queue.hpp>
+#include <hft/lockfree/spsc_queue.hpp>
 
 #include <atomic>
 #include <barrier>
@@ -12,7 +12,7 @@ using clock_type = std::chrono::steady_clock;
 template<std::size_t Capacity>
 void benchmark(std::uint64_t iterations)
 {
-    fby::spsc_queue<std::uint64_t> queue{Capacity};
+    hft::spsc_queue<std::uint64_t> queue{Capacity};
 
     std::barrier sync{3};
 

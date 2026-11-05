@@ -27,7 +27,7 @@
 #   define NODISCARD
 #endif
 
-namespace fby
+namespace hft
 {
 /**
  * @brief Bounded single-producer, single-consumer queue.
@@ -316,4 +316,4 @@ private:
     alignas(kCachelineSize) std::atomic<size_type> readIdx_{ 0 };
     size_type writeCacheIdx_{ 0 };
 };
-} // namespace fby
+} // namespace hft

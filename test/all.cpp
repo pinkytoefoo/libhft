@@ -1,4 +1,5 @@
 #include "inplace_vector_tests.hpp"
+#include "unique_ptr_tests.hpp"
 
 #include <gtest/gtest.h>
 

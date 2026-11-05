@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(libfby VERSION 1.1 LANGUAGES CXX)
+project(libhft VERSION 1.1 LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
