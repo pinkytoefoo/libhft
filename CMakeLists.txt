@@ -33,7 +33,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 if(APPLE)
-    target_compile_options(-Wno-character-conversion)
+    target_compile_options(tests PRIVATE -Wno-character-conversion)
 endif()
 
 add_executable(tests test/all.cpp)
