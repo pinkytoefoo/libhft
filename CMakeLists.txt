@@ -32,10 +32,9 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+add_executable(tests test/all.cpp)
 if(APPLE)
     target_compile_options(tests PRIVATE -Wno-character-conversion)
 endif()
-
-add_executable(tests test/all.cpp)
 target_include_directories(tests PRIVATE include GoogleTest)
 target_link_libraries(tests PRIVATE  GTest::gtest_main)

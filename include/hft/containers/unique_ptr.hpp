@@ -62,7 +62,7 @@ public:
     {
     }
 
-    constexpr unique_ptr(T* ptr, const Deleter& deleter = Deleter())
+    constexpr unique_ptr(pointer ptr, const Deleter& deleter = Deleter())
         noexcept(std::is_nothrow_constructible_v<Deleter, const Deleter&>)
         : deleter_{ deleter }
         , ptr_{ ptr }
@@ -108,20 +108,20 @@ public:
     // note: calling reset(get()) is UB
     // this implementation does check for this
     // keeping the implementation inline with the standard
-    constexpr void reset(T* new_ptr = nullptr)
+    constexpr void reset(pointer new_ptr = nullptr)
         noexcept(std::is_nothrow_destructible_v<T>) 
     {
         deleter_(ptr_);
         ptr_ = new_ptr;
     }
 
-    [[nodiscard]] constexpr T* release() noexcept {
+    [[nodiscard]] constexpr pointer release() noexcept {
         return std::exchange(ptr_, nullptr);
     }
 
-    [[nodiscard]] constexpr T* operator->() const noexcept { return ptr_; }
+    [[nodiscard]] constexpr pointer operator->() const noexcept { return ptr_; }
     [[nodiscard]] constexpr T& operator*() const noexcept { return *ptr_; }
-    [[nodiscard]] constexpr T* get() const noexcept { return ptr_; }
+    [[nodiscard]] constexpr pointer get() const noexcept { return ptr_; }
 
     [[nodiscard]] constexpr explicit operator bool() const noexcept { return ptr_ != nullptr; }
     
@@ -155,7 +155,7 @@ public:
 
 private:
     [[no_unique_address]] Deleter deleter_{ };
-    T* ptr_{ nullptr };
+    pointer ptr_{ nullptr };
 };
 
 template<typename T, typename ...Args>
